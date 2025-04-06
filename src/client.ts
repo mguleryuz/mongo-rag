@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import { OpenAI } from 'openai'
-import EmbeddingModel from './embedding.mongo'
-import type { IEmbeddingDocument } from './embedding.mongo'
+import EmbeddingModel from '@/embedding.mongo'
+import type { IEmbeddingDocument } from '@/embedding.mongo'
 
 export type Message = {
   role: string
@@ -10,45 +10,17 @@ export type Message = {
 
 export class MongoRagClient {
   private readonly openai_api_key: string
-  private readonly mongo_username: string
-  private readonly mongo_password: string
-  private readonly mongo_host: string
-  private readonly mongo_db_name: string
-  private readonly mongo_uri: string
   private openai: OpenAI
-  private connected: boolean = mongoose.connection.readyState === 1
 
-  constructor({
-    openai_api_key,
-    mongo_username,
-    mongo_password,
-    mongo_host,
-    mongo_db_name,
-    mongo_collection_name,
-  }: {
-    openai_api_key: string
-    mongo_username: string
-    mongo_password: string
-    mongo_host: string
-    mongo_db_name: string
-    mongo_collection_name: string
-  }) {
-    this.openai_api_key = openai_api_key
-    this.mongo_username = mongo_username
-    this.mongo_password = mongo_password
-    this.mongo_host = mongo_host
-    this.mongo_db_name = mongo_db_name
-
-    this.mongo_uri = `mongodb+srv://${this.mongo_username}:${this.mongo_password}@${this.mongo_host}/${this.mongo_db_name}`
-    this.openai = new OpenAI({ apiKey: this.openai_api_key })
-  }
-
-  // Connect to MongoDB
-  private async connect() {
-    if (!this.connected) {
-      await mongoose.connect(this.mongo_uri)
-      this.connected = true
+  constructor({ openai_api_key }: { openai_api_key: string }) {
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error(
+        'MongoDB is not connected, please connect first, then initialize the MongoRagClient'
+      )
     }
+
+    this.openai_api_key = openai_api_key
+    this.openai = new OpenAI({ apiKey: this.openai_api_key })
   }
 
   // Generate embedding using OpenAI
@@ -90,8 +62,6 @@ export class MongoRagClient {
       expiration_date?: string | Date
     } = {}
   ) {
-    await this.connect()
-
     const content = this.extractContent(messages)
     const embedding = await this.generateEmbedding(content)
 
@@ -144,42 +114,54 @@ export class MongoRagClient {
       metadata?: Record<string, any>
       threshold?: number
       limit?: number
-      output_format?: 'v1.0' | 'v1.1'
-      version?: 'v1' | 'v2'
-      filters?: any
+      filters?: Record<string, any>
     } = {}
   ) {
-    await this.connect()
-
     const embedding = await this.generateEmbedding(query)
 
-    // Handle v2 search with custom filters
-    if (options.version === 'v2' && options.filters) {
+    let results: any[]
+
+    // Check if custom filters are provided
+    if (options.filters) {
       // Convert filters to MongoDB query format
       const mongoFilters = this.processFilters(options.filters)
 
       // Perform search with vectorSearch
-      const results = await EmbeddingModel.findSimilar(embedding, {
+      results = await EmbeddingModel.findSimilar(embedding, {
         limit: options.limit,
-        // Use the processed filters directly in the MongoDB query
         ...mongoFilters,
       })
-
-      return this.formatSearchResults(results, options.output_format)
+    } else {
+      // Standard search with individual parameters
+      results = await EmbeddingModel.findSimilar(embedding, {
+        user_id: options.user_id,
+        agent_id: options.agent_id,
+        run_id: options.run_id,
+        app_id: options.app_id,
+        categories: options.categories,
+        metadata: options.metadata,
+        limit: options.limit,
+      })
     }
 
-    // Standard v1 search
-    const results = await EmbeddingModel.findSimilar(embedding, {
-      user_id: options.user_id,
-      agent_id: options.agent_id,
-      run_id: options.run_id,
-      app_id: options.app_id,
-      categories: options.categories,
-      metadata: options.metadata,
-      limit: options.limit,
-    })
+    const formattedResults = results.map((r) => ({
+      id: r._id.toString(),
+      content: r.content,
+      user_id: r.user_id,
+      agent_id: r.agent_id,
+      run_id: r.run_id,
+      app_id: r.app_id,
+      metadata: r.metadata,
+      categories: r.categories,
+      score: r.similarity,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }))
 
-    return this.formatSearchResults(results, options.output_format)
+    return {
+      memories: formattedResults,
+      total: formattedResults.length,
+    }
   }
 
   /**
@@ -196,21 +178,17 @@ export class MongoRagClient {
       keywords?: string
       page?: number
       page_size?: number
-      output_format?: 'v1.0' | 'v1.1'
-      version?: 'v1' | 'v2'
-      filters?: any
+      filters?: Record<string, any>
     } = {}
   ) {
-    await this.connect()
-
     const page = options.page || 1
     const pageSize = options.page_size || 100
     const skip = (page - 1) * pageSize
 
     let query: Record<string, any> = {}
 
-    // Handle v2 custom filters
-    if (options.version === 'v2' && options.filters) {
+    // Handle custom filters if provided
+    if (options.filters) {
       query = this.processFilters(options.filters)
     } else {
       // Standard query filters
@@ -238,18 +216,12 @@ export class MongoRagClient {
       .skip(skip)
       .limit(pageSize)
 
-    // Format results based on output format
-    if (options.output_format === 'v1.1' || options.page || options.page_size) {
-      return {
-        memories: memories.map((m) => this.formatMemory(m)),
-        total,
-        page,
-        page_size: pageSize,
-        total_pages: Math.ceil(total / pageSize),
-      }
-    } else {
-      // Default v1.0 format (list of memories)
-      return memories.map((m) => this.formatMemory(m))
+    return {
+      memories: memories.map((m) => this.formatMemory(m)),
+      total,
+      page,
+      page_size: pageSize,
+      total_pages: Math.ceil(total / pageSize),
     }
   }
 
@@ -258,8 +230,6 @@ export class MongoRagClient {
    * @param memoryId - The ID of the memory to retrieve
    */
   async get(memoryId: string) {
-    await this.connect()
-
     const memory = await EmbeddingModel.findById(memoryId)
     if (!memory) {
       throw new Error(`Memory with ID ${memoryId} not found`)
@@ -283,8 +253,6 @@ export class MongoRagClient {
       expiration_date?: string | Date
     } = {}
   ) {
-    await this.connect()
-
     const memory = await EmbeddingModel.findById(memoryId)
     if (!memory) {
       throw new Error(`Memory with ID ${memoryId} not found`)
@@ -323,8 +291,6 @@ export class MongoRagClient {
    * @param memoryId - The ID of the memory to delete
    */
   async delete(memoryId: string) {
-    await this.connect()
-
     const result = await EmbeddingModel.findByIdAndDelete(memoryId)
     if (!result) {
       throw new Error(`Memory with ID ${memoryId} not found`)
@@ -345,8 +311,6 @@ export class MongoRagClient {
       app_id?: string
     } = {}
   ) {
-    await this.connect()
-
     const query: Record<string, any> = {}
     if (options.user_id) query.user_id = options.user_id
     if (options.agent_id) query.agent_id = options.agent_id
@@ -380,8 +344,6 @@ export class MongoRagClient {
    * Get all unique users, agents, and runs in the system
    */
   async users() {
-    await this.connect()
-
     // Group by each ID type and get unique values
     const userIdAgg = await EmbeddingModel.aggregate([
       { $match: { user_id: { $exists: true, $ne: null } } },
@@ -424,8 +386,6 @@ export class MongoRagClient {
       categories?: string[]
     }[]
   ) {
-    await this.connect()
-
     const results = []
 
     // Process each update sequentially
@@ -453,8 +413,6 @@ export class MongoRagClient {
    * @param deletes - Array of memory IDs to delete
    */
   async batchDelete(deletes: { memory_id: string }[]) {
-    await this.connect()
-
     const results = []
 
     // Process each delete sequentially
@@ -480,8 +438,6 @@ export class MongoRagClient {
    * Not fully implemented since MongoDB doesn't track version history by default
    */
   async history(memoryId: string) {
-    await this.connect()
-
     // Basic implementation - would need to be expanded with a proper history tracking mechanism
     const memory = await EmbeddingModel.findById(memoryId)
     if (!memory) {
@@ -496,7 +452,6 @@ export class MongoRagClient {
    * Reset the client (for testing purposes)
    */
   async reset() {
-    await this.connect()
     await EmbeddingModel.deleteMany({})
     return { success: true, message: 'All memories deleted' }
   }
@@ -516,31 +471,6 @@ export class MongoRagClient {
       created_at: memory.created_at,
       updated_at: memory.updated_at,
     }
-  }
-
-  private formatSearchResults(results: any[], outputFormat?: string) {
-    const formattedResults = results.map((r) => ({
-      id: r._id.toString(),
-      content: r.content,
-      user_id: r.user_id,
-      agent_id: r.agent_id,
-      run_id: r.run_id,
-      app_id: r.app_id,
-      metadata: r.metadata,
-      categories: r.categories,
-      score: r.similarity,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    }))
-
-    if (outputFormat === 'v1.1') {
-      return {
-        memories: formattedResults,
-        total: formattedResults.length,
-      }
-    }
-
-    return formattedResults
   }
 
   private processFilters(filters: any): Record<string, any> {
