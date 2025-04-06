@@ -55,10 +55,14 @@
     "eslint": "^9.17.0",
     "typescript": "^5.7.2"
   },
-  "peerDependencies": {},
+  "peerDependencies": {
+    "mongoose": "^8.13.2",
+    "mongodb": "^6.15.0"
+  },
   "dependencies": {
-    "type-fest-4": "npm:type-fest@^4.31.0",
-    "debug": "^4.4.0"
+    "debug": "^4.4.0",
+    "openai": "^4.91.1",
+    "type-fest-4": "npm:type-fest@^4"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.0",
