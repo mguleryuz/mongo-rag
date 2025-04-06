@@ -11,8 +11,15 @@ export type Message = {
 export class MongoRagClient {
   private readonly openai_api_key: string
   private openai: OpenAI
+  private readonly embeddingDimensions: number = 1536 // Default for text-embedding-3-small
 
-  constructor({ openai_api_key }: { openai_api_key: string }) {
+  constructor({
+    openai_api_key,
+    embeddingDimensions = 1536,
+  }: {
+    openai_api_key: string
+    embeddingDimensions?: number
+  }) {
     if (mongoose.connection.readyState !== 1) {
       throw new Error(
         'MongoDB is not connected, please connect first, then initialize the MongoRagClient'
@@ -20,7 +27,68 @@ export class MongoRagClient {
     }
 
     this.openai_api_key = openai_api_key
+    this.embeddingDimensions = embeddingDimensions
     this.openai = new OpenAI({ apiKey: this.openai_api_key })
+
+    // Ensure the vector search index exists
+    this.ensureVectorIndex()
+  }
+
+  /**
+   * Checks if the vector search index exists and creates it if not
+   */
+  private async ensureVectorIndex(): Promise<void> {
+    try {
+      // Get the database from the connection
+      const db = mongoose.connection.db
+      if (!db) {
+        throw new Error('MongoDB database connection not available')
+      }
+
+      // Get the collection from the model
+      const collection = db.collection(EmbeddingModel.collection.name)
+
+      // Check if search index exists
+      const searchIndexes = await collection
+        .aggregate([{ $listSearchIndexes: {} }])
+        .toArray()
+
+      // Check if our mongo_rag_vector_index exists
+      const vectorIndexExists = searchIndexes.some(
+        (index) => index.name === 'mongo_rag_vector_index'
+      )
+
+      if (!vectorIndexExists) {
+        console.log('Vector search index does not exist. Creating index...')
+
+        // Define the index configuration
+        const indexConfig = {
+          name: 'mongo_rag_vector_index',
+          type: 'vectorSearch',
+          definition: {
+            fields: [
+              {
+                type: 'vector',
+                path: 'embedding',
+                numDimensions: this.embeddingDimensions,
+                similarity: 'cosine',
+              },
+            ],
+          },
+        }
+
+        // Create the search index
+        await collection.createSearchIndex(indexConfig)
+        console.log('Vector search index created successfully!')
+      } else {
+        console.log('Vector search index already exists.')
+      }
+    } catch (error: unknown) {
+      console.error('Error while ensuring vector index:', error)
+      const errorMessage =
+        error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to create vector search index: ${errorMessage}`)
+    }
   }
 
   // Generate embedding using OpenAI
@@ -28,6 +96,7 @@ export class MongoRagClient {
     const response = await this.openai.embeddings.create({
       model: 'text-embedding-3-small',
       input: text,
+      dimensions: this.embeddingDimensions,
     })
     return response.data[0].embedding
   }

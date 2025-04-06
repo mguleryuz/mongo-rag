@@ -150,11 +150,11 @@ EmbeddingSchema.statics.findSimilar = function (
   // Add vector search stage
   pipeline.push({
     $vectorSearch: {
-      index: 'vector_index',
+      index: 'mongo_rag_vector_index',
       queryVector: embedding,
       path: 'embedding',
-      numCandidates: numCandidates,
-      limit: limit,
+      numCandidates,
+      limit,
     },
   })
 
