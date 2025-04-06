@@ -139,24 +139,27 @@ EmbeddingSchema.statics.findSimilar = function (
     { expiration_date: { $gt: new Date() } },
   ]
 
-  // Pipeline stages
-  const pipeline: any[] = []
+  // Initialize the pipeline with $vectorSearch as the first stage
+  const pipeline: any[] = [
+    // $vectorSearch must be the first stage
+    {
+      $vectorSearch: {
+        index: 'mongo_rag_vector_index',
+        queryVector: embedding,
+        path: 'embedding',
+        numCandidates,
+        limit: Math.max(limit * 10, 100), // Get more candidates for post-filtering
+      },
+    },
+  ]
 
-  // Add pre-filter stage if we have filter conditions
+  // Add a $match stage after $vectorSearch if we have filter conditions
   if (Object.keys(filterConditions).length > 0) {
     pipeline.push({ $match: filterConditions })
   }
 
-  // Add vector search stage
-  pipeline.push({
-    $vectorSearch: {
-      index: 'mongo_rag_vector_index',
-      queryVector: embedding,
-      path: 'embedding',
-      numCandidates,
-      limit,
-    },
-  })
+  // Add a $limit stage to ensure we don't exceed the desired limit after filtering
+  pipeline.push({ $limit: limit })
 
   // Project stage to include relevant fields and score
   pipeline.push({

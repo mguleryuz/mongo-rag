@@ -521,8 +521,12 @@ export class MongoRagClient {
    * Reset the client (for testing purposes)
    */
   async reset() {
-    await EmbeddingModel.deleteMany({})
-    return { success: true, message: 'All memories deleted' }
+    if (process.env.NODE_ENV === 'test') {
+      await EmbeddingModel.deleteMany({})
+      return { success: true, message: 'All memories deleted' }
+    } else {
+      throw new Error('Reset is only allowed in test mode')
+    }
   }
 
   // Helper methods
