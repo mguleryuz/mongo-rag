@@ -1,7 +1,7 @@
 {
   "name": "mongo-rag",
   "description": "A type-safe MongoDB implementation for Retrieval Augmented Generation with vector search",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
