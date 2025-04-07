@@ -185,7 +185,7 @@ EmbeddingSchema.statics.findSimilar = function (
 
 // Create and export the model with proper typing
 const EmbeddingModel = model<IEmbeddingDocument, IEmbeddingModel>(
-  'embeddings',
+  'mongo_rag_embeddings',
   EmbeddingSchema
 )
 
