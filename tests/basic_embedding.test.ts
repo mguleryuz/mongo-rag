@@ -2,7 +2,7 @@ import { expect, describe, beforeAll, afterAll, it } from 'bun:test'
 import { writeLog } from '../scripts'
 import mongoose from 'mongoose'
 import { MongoRagClient } from '@/client'
-import type { Message } from '@/client'
+import type { Messages } from '@/client'
 import { logger } from './logger'
 
 const MONGO_URI = process.env.MONGO_URI
@@ -74,7 +74,7 @@ describe('#BASIC_EMBEDDING', () => {
         expect(stringMemory.content).toBe('This is a test memory as a string')
 
         // 2. Add memory as messages
-        const messages: Message[] = [
+        const messages: Messages = [
           { role: 'user', content: 'I like pizza with extra cheese' },
           { role: 'assistant', content: "That's a great choice!" },
         ]
@@ -156,7 +156,6 @@ describe('#BASIC_EMBEDDING', () => {
         logger.info('Search results', {
           count: searchResults.memories.length,
           top_match: searchResults.memories[0]?.content,
-          top_match_score: searchResults.memories[0]?.score,
         })
 
         // The pizza memory should be in the results

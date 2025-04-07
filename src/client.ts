@@ -1,11 +1,76 @@
 import mongoose from 'mongoose'
 import { OpenAI } from 'openai'
 import EmbeddingModel from '@/embedding.mongo'
-import type { IEmbeddingDocument } from '@/embedding.mongo'
+import type { IEmbedding, IEmbeddingDocument } from '@/embedding.mongo'
 
-export type Message = {
-  role: string
-  content: string
+export type Messages =
+  | {
+      role: string
+      content: string
+    }[]
+  | string
+
+export type Memory = {
+  id: string
+} & Omit<IEmbedding, 'embedding'>
+
+export type MemorySearchReturnType = {
+  memories: Memory[]
+  total: number
+}
+
+export type MemoryGetAllReturnType = {
+  memories: Memory[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export type MemoryDeleteReturnType = {
+  success: boolean
+  id: string
+}
+
+export type MemoryDeleteAllReturnType = {
+  success: boolean
+  deleted_count: number
+}
+
+export type MemoryUsersReturnType = {
+  user_ids: string[]
+  agent_ids: string[]
+  run_ids: string[]
+  app_ids: string[]
+}
+
+export type MemoryBatchUpdateReturnType = {
+  results: (
+    | {
+        success: boolean
+        id: string
+        memory: Memory
+      }
+    | {
+        success: boolean
+        id: string
+        error: string
+      }
+  )[]
+}
+
+export type MemoryBatchDeleteReturnType = {
+  results: (
+    | {
+        success: boolean
+        id: string
+      }
+    | {
+        success: boolean
+        id: string
+        error: string
+      }
+  )[]
 }
 
 export class MongoRagClient {
@@ -102,7 +167,7 @@ export class MongoRagClient {
   }
 
   // Extract content from messages
-  private extractContent(messages: Message[] | string): string {
+  private extractContent(messages: Messages): string {
     if (typeof messages === 'string') {
       return messages
     }
@@ -120,7 +185,7 @@ export class MongoRagClient {
    * @param options - Configuration options including identifiers and metadata
    */
   async add(
-    messages: Message[] | string,
+    messages: Messages,
     options: {
       user_id?: string
       agent_id?: string
@@ -185,7 +250,7 @@ export class MongoRagClient {
       limit?: number
       filters?: Record<string, any>
     } = {}
-  ) {
+  ): Promise<MemorySearchReturnType> {
     const embedding = await this.generateEmbedding(query)
 
     let results: any[]
@@ -222,7 +287,6 @@ export class MongoRagClient {
       app_id: r.app_id,
       metadata: r.metadata,
       categories: r.categories,
-      score: r.similarity,
       created_at: r.created_at,
       updated_at: r.updated_at,
     }))
@@ -249,7 +313,7 @@ export class MongoRagClient {
       page_size?: number
       filters?: Record<string, any>
     } = {}
-  ) {
+  ): Promise<MemoryGetAllReturnType> {
     const page = options.page || 1
     const pageSize = options.page_size || 100
     const skip = (page - 1) * pageSize
@@ -298,7 +362,7 @@ export class MongoRagClient {
    * Get a specific memory by ID
    * @param memoryId - The ID of the memory to retrieve
    */
-  async get(memoryId: string) {
+  async get(memoryId: string): Promise<Memory> {
     const memory = await EmbeddingModel.findById(memoryId)
     if (!memory) {
       throw new Error(`Memory with ID ${memoryId} not found`)
@@ -321,7 +385,7 @@ export class MongoRagClient {
       categories?: string[]
       expiration_date?: string | Date
     } = {}
-  ) {
+  ): Promise<Memory> {
     const memory = await EmbeddingModel.findById(memoryId)
     if (!memory) {
       throw new Error(`Memory with ID ${memoryId} not found`)
@@ -359,7 +423,7 @@ export class MongoRagClient {
    * Delete a memory
    * @param memoryId - The ID of the memory to delete
    */
-  async delete(memoryId: string) {
+  async delete(memoryId: string): Promise<MemoryDeleteReturnType> {
     const result = await EmbeddingModel.findByIdAndDelete(memoryId)
     if (!result) {
       throw new Error(`Memory with ID ${memoryId} not found`)
@@ -379,7 +443,7 @@ export class MongoRagClient {
       run_id?: string
       app_id?: string
     } = {}
-  ) {
+  ): Promise<MemoryDeleteAllReturnType> {
     const query: Record<string, any> = {}
     if (options.user_id) query.user_id = options.user_id
     if (options.agent_id) query.agent_id = options.agent_id
@@ -405,14 +469,14 @@ export class MongoRagClient {
       run_id?: string
       app_id?: string
     } = {}
-  ) {
+  ): Promise<{ success: boolean; deleted_count: number }> {
     return this.deleteAll(options)
   }
 
   /**
    * Get all unique users, agents, and runs in the system
    */
-  async users() {
+  async users(): Promise<MemoryUsersReturnType> {
     // Group by each ID type and get unique values
     const userIdAgg = await EmbeddingModel.aggregate([
       { $match: { user_id: { $exists: true, $ne: null } } },
@@ -454,7 +518,7 @@ export class MongoRagClient {
       metadata?: Record<string, any>
       categories?: string[]
     }[]
-  ) {
+  ): Promise<MemoryBatchUpdateReturnType> {
     const results = []
 
     // Process each update sequentially
@@ -481,7 +545,9 @@ export class MongoRagClient {
    * Batch delete multiple memories
    * @param deletes - Array of memory IDs to delete
    */
-  async batchDelete(deletes: { memory_id: string }[]) {
+  async batchDelete(
+    deletes: { memory_id: string }[]
+  ): Promise<MemoryBatchDeleteReturnType> {
     const results = []
 
     // Process each delete sequentially
@@ -499,22 +565,6 @@ export class MongoRagClient {
     }
 
     return { results }
-  }
-
-  /**
-   * Get memory change history
-   * @param memoryId - The ID of the memory to get history for
-   * Not fully implemented since MongoDB doesn't track version history by default
-   */
-  async history(memoryId: string) {
-    // Basic implementation - would need to be expanded with a proper history tracking mechanism
-    const memory = await EmbeddingModel.findById(memoryId)
-    if (!memory) {
-      throw new Error(`Memory with ID ${memoryId} not found`)
-    }
-
-    // Return current state as the only history entry
-    return [this.formatMemory(memory)]
   }
 
   /**
