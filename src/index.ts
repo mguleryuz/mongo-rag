@@ -8,5 +8,8 @@ export type {
   MemoryUsersReturnType,
   MemoryBatchUpdateReturnType,
   MemoryBatchDeleteReturnType,
+  MemoryAddReturnType,
+  MemoryFactReturnType,
+  MemoryFactsReturnType,
 } from './client'
 export { MongoRagClient } from './client'
