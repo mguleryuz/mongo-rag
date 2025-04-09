@@ -61,8 +61,9 @@
   },
   "dependencies": {
     "debug": "^4.4.0",
-    "openai": "^4.91.1",
-    "type-fest-4": "npm:type-fest@^4"
+    "openai": "^4",
+    "type-fest-4": "npm:type-fest@^4",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.0",

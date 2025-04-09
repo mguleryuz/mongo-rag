@@ -2,6 +2,8 @@ import mongoose from 'mongoose'
 import { OpenAI } from 'openai'
 import EmbeddingModel from '@/embedding.mongo'
 import type { IEmbedding, IEmbeddingDocument } from '@/embedding.mongo'
+import { z } from 'zod'
+import { zodResponseFormat } from 'openai/helpers/zod'
 
 export type Messages =
   | {
@@ -224,77 +226,77 @@ export class MongoRagClient {
       .map((msg) => `${msg.role}: ${msg.content}`)
       .join('\n')
 
+    // Define a Zod schema for facts extraction
+    const factsSchema = z.object({
+      facts: z
+        .array(z.string())
+        .describe('Array of facts about the user in third person'),
+    })
+
     try {
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo', // Using a more reliable model
+      // Use the beta API with Zod schema validation
+      const completion = await this.openai.beta.chat.completions.parse({
+        model: 'gpt-4o-mini', // Using GPT-4o which supports structured outputs
         messages: [
           {
             role: 'system',
             content:
-              'Extract distinct factual statements about the user from this conversation. Return a JSON object with a "facts" array containing string facts in third person (e.g., "User likes sci-fi movies.").',
+              'Extract distinct factual statements about the user from this conversation. Focus on preferences, traits, beliefs, or any other relevant information about the user.',
           },
           {
             role: 'user',
             content: conversationText,
           },
         ],
-        response_format: { type: 'json_object' },
+        response_format: zodResponseFormat(factsSchema, 'facts_extraction'),
       })
 
+      // Extract the facts from the parsed response
+      const parsed = completion.choices[0].message.parsed
+      return parsed?.facts || []
+    } catch (error) {
+      console.error('Error calling OpenAI for fact extraction:', error)
+
+      // Fallback to manual extraction for compatibility
       try {
+        const response = await this.openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Extract distinct factual statements about the user from this conversation. Return a JSON object with a "facts" array containing string facts in third person (e.g., "User likes sci-fi movies").',
+            },
+            {
+              role: 'user',
+              content: conversationText,
+            },
+          ],
+          response_format: { type: 'json_object' },
+        })
+
         const content = response.choices[0].message.content || '{"facts": []}'
         const parsed = JSON.parse(content)
 
-        // Handle different response formats
         if (parsed.facts && Array.isArray(parsed.facts)) {
-          // Standard expected format with facts array
           return parsed.facts
-        } else {
-          // Alternative: extract facts from keys of the object
-          const factKeys = Object.keys(parsed).filter(
-            (key) =>
-              key !== 'facts' && typeof key === 'string' && key.includes('User')
-          )
-
-          if (factKeys.length > 0) {
-            // Extract facts from keys
-            const facts = factKeys.flatMap((key) => {
-              // Split by periods and filter out empty strings
-              return key
-                .split('.')
-                .map((f) => f.trim())
-                .filter((f) => f.length > 0)
-            })
-            return facts
-          }
-
-          // If we can't find facts in a standard way, try to parse the content as a string
-          // and extract sentences about the user
-          const rawContent = Object.keys(parsed).join(' ')
-          const extractedFacts = rawContent
-            .split('.')
-            .map((sentence) => sentence.trim())
-            .filter((sentence) => sentence.includes('User'))
-            .filter((sentence) => sentence.length > 0)
-
-          return extractedFacts
         }
-      } catch (error) {
-        console.error('Error parsing facts from AI response:', error)
 
-        // Try to extract facts directly from the content as a fallback
-        const content = response.choices[0].message.content || ''
-        const directFacts = content
+        // Extract facts from the content as a fallback
+        const contentStr = content.toString()
+        const directFacts = contentStr
           .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => line.startsWith('User') || line.includes('User'))
-          .map((line) => line.replace(/["{}]/g, '').trim())
+          .map((line: string) => line.trim())
+          .filter(
+            (line: string) => line.startsWith('User') || line.includes('User')
+          )
+          .map((line: string) => line.replace(/["{}]/g, '').trim())
 
         return directFacts.length > 0 ? directFacts : []
+      } catch (fallbackError) {
+        console.error('Fallback extraction also failed:', fallbackError)
+        return []
       }
-    } catch (error) {
-      console.error('Error calling OpenAI for fact extraction:', error)
-      return []
     }
   }
 
