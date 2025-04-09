@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.9.6](https://github.com/mguleryuz/mongo-rag/compare/v0.9.5...v0.9.6) (2025-04-09)
+
+### Features
+
+- enhance fact extraction in MongoRagClient with Zod validation ([3f908eb](https://github.com/mguleryuz/mongo-rag/commit/3f908eb99f416ce8ba4e81d28d65736f559e9ed7))
+- implement conversation fact extraction in MongoRagClient ([d6eb861](https://github.com/mguleryuz/mongo-rag/commit/d6eb861b09ef522b99de40f9d6b68e851a9e6836))
+
 ### [0.9.5](https://github.com/mguleryuz/mongo-rag/compare/v0.9.4...v0.9.5) (2025-04-07)
 
 ### [0.9.4](https://github.com/mguleryuz/mongo-rag/compare/v0.9.3...v0.9.4) (2025-04-07)
