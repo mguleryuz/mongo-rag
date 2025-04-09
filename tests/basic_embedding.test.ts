@@ -88,8 +88,11 @@ describe('#BASIC_EMBEDDING', () => {
           categories: ['test', 'food'],
           metadata: { food_type: 'pizza' },
         })
-        logger.info('Created message memory with ID:', messageMemory.id)
-        expect(messageMemory.id).toBeDefined()
+        logger.info(
+          'Created message memory with ID:',
+          messageMemory.results.map((result) => result.id)
+        )
+        expect(messageMemory.results[0].id).toBeDefined()
 
         // 3. Add memory with expiration
         const expirationDate = new Date()

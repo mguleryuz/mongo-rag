@@ -73,6 +73,33 @@ export type MemoryBatchDeleteReturnType = {
   )[]
 }
 
+export type MemoryFactReturnType = {
+  id: string
+  memory: string
+  user_id?: string
+  agent_id?: string
+  run_id?: string
+  app_id?: string
+  metadata: Record<string, any>
+  categories: string[]
+}
+
+export type MemoryFactsReturnType = {
+  results: MemoryFactReturnType[]
+}
+
+export type MemoryAddReturnType<T> = T extends string
+  ? {
+      // Standard memory return type
+      id: string
+      content: string
+      user_id?: string
+      agent_id?: string
+      run_id?: string
+      app_id?: string
+    }
+  : MemoryFactsReturnType // Facts return type
+
 export class MongoRagClient {
   private readonly openai_api_key: string
   private openai: OpenAI
@@ -166,26 +193,119 @@ export class MongoRagClient {
     return response.data[0].embedding
   }
 
-  // Extract content from messages
-  private extractContent(messages: Messages): string {
-    if (typeof messages === 'string') {
-      return messages
-    }
+  /**
+   * Check if input is a conversation (array of messages with role/content)
+   */
+  private isConversation(messages: Messages): messages is {
+    role: string
+    content: string
+  }[] {
+    return (
+      Array.isArray(messages) &&
+      messages.length > 0 &&
+      messages.every(
+        (msg) => typeof msg === 'object' && 'role' in msg && 'content' in msg
+      )
+    )
+  }
 
-    // Extract user messages only
-    return messages
-      .filter((msg) => msg.role === 'user')
-      .map((msg) => msg.content)
+  /**
+   * Extract facts from conversation messages using AI
+   * @param messages - Array of message objects
+   * @returns Array of extracted facts about the user
+   */
+  private async extractFactsFromConversation(
+    messages: {
+      role: string
+      content: string
+    }[]
+  ): Promise<string[]> {
+    const conversationText = messages
+      .map((msg) => `${msg.role}: ${msg.content}`)
       .join('\n')
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo', // Using a more reliable model
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Extract distinct factual statements about the user from this conversation. Return a JSON object with a "facts" array containing string facts in third person (e.g., "User likes sci-fi movies.").',
+          },
+          {
+            role: 'user',
+            content: conversationText,
+          },
+        ],
+        response_format: { type: 'json_object' },
+      })
+
+      try {
+        const content = response.choices[0].message.content || '{"facts": []}'
+        const parsed = JSON.parse(content)
+
+        // Handle different response formats
+        if (parsed.facts && Array.isArray(parsed.facts)) {
+          // Standard expected format with facts array
+          return parsed.facts
+        } else {
+          // Alternative: extract facts from keys of the object
+          const factKeys = Object.keys(parsed).filter(
+            (key) =>
+              key !== 'facts' && typeof key === 'string' && key.includes('User')
+          )
+
+          if (factKeys.length > 0) {
+            // Extract facts from keys
+            const facts = factKeys.flatMap((key) => {
+              // Split by periods and filter out empty strings
+              return key
+                .split('.')
+                .map((f) => f.trim())
+                .filter((f) => f.length > 0)
+            })
+            return facts
+          }
+
+          // If we can't find facts in a standard way, try to parse the content as a string
+          // and extract sentences about the user
+          const rawContent = Object.keys(parsed).join(' ')
+          const extractedFacts = rawContent
+            .split('.')
+            .map((sentence) => sentence.trim())
+            .filter((sentence) => sentence.includes('User'))
+            .filter((sentence) => sentence.length > 0)
+
+          return extractedFacts
+        }
+      } catch (error) {
+        console.error('Error parsing facts from AI response:', error)
+
+        // Try to extract facts directly from the content as a fallback
+        const content = response.choices[0].message.content || ''
+        const directFacts = content
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('User') || line.includes('User'))
+          .map((line) => line.replace(/["{}]/g, '').trim())
+
+        return directFacts.length > 0 ? directFacts : []
+      }
+    } catch (error) {
+      console.error('Error calling OpenAI for fact extraction:', error)
+      return []
+    }
   }
 
   /**
    * Add a memory
    * @param messages - String content or array of message objects
    * @param options - Configuration options including identifiers and metadata
+   * @returns Either a single memory or extracted facts depending on input format
    */
-  async add(
-    messages: Messages,
+  async add<T extends Messages>(
+    messages: T,
     options: {
       user_id?: string
       agent_id?: string
@@ -195,9 +315,56 @@ export class MongoRagClient {
       categories?: string[]
       expiration_date?: string | Date
     } = {}
-  ) {
-    const content = this.extractContent(messages)
-    const embedding = await this.generateEmbedding(content)
+  ): Promise<MemoryAddReturnType<T>> {
+    // Automatically detect if input is a conversation and extract facts
+    if (this.isConversation(messages)) {
+      const facts = await this.extractFactsFromConversation(messages)
+
+      const results: MemoryFactReturnType[] = []
+
+      for (const fact of facts) {
+        const embedding = await this.generateEmbedding(fact)
+
+        // Process expiration date if provided
+        let expirationDate: Date | undefined = undefined
+        if (options.expiration_date) {
+          expirationDate =
+            typeof options.expiration_date === 'string'
+              ? new Date(options.expiration_date)
+              : options.expiration_date
+        }
+
+        const memory = new EmbeddingModel({
+          content: fact,
+          embedding,
+          user_id: options.user_id,
+          agent_id: options.agent_id,
+          run_id: options.run_id,
+          app_id: options.app_id,
+          metadata: options.metadata || {},
+          categories: options.categories || [],
+          expiration_date: expirationDate,
+        })
+
+        await memory.save()
+
+        results.push({
+          id: memory._id.toString(),
+          memory: fact,
+          user_id: options.user_id,
+          agent_id: options.agent_id,
+          run_id: options.run_id,
+          app_id: options.app_id,
+          metadata: options.metadata || {},
+          categories: options.categories || [],
+        })
+      }
+
+      return { results } as MemoryAddReturnType<T>
+    }
+
+    // Original behavior for non-conversation input
+    const embedding = await this.generateEmbedding(messages)
 
     // Process expiration date if provided
     let expirationDate: Date | undefined = undefined
@@ -209,7 +376,7 @@ export class MongoRagClient {
     }
 
     const memory = new EmbeddingModel({
-      content,
+      content: messages,
       embedding,
       user_id: options.user_id,
       agent_id: options.agent_id,
@@ -224,12 +391,12 @@ export class MongoRagClient {
 
     return {
       id: memory._id.toString(),
-      content,
+      content: messages,
       user_id: options.user_id,
       agent_id: options.agent_id,
       run_id: options.run_id,
       app_id: options.app_id,
-    }
+    } as MemoryAddReturnType<T>
   }
 
   /**
