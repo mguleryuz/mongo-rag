@@ -62,8 +62,7 @@
   "dependencies": {
     "@google/genai": "^0.8.0",
     "debug": "^4.4.0",
-    "type-fest-4": "npm:type-fest@^4",
-    "zod": "^3.24.2"
+    "type-fest-4": "npm:type-fest@^4"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.0",
@@ -92,11 +91,23 @@
     "url": "https://github.com/mguleryuz/mongo-rag/issues"
   },
   "keywords": [
-    "npm",
-    "contracts",
-    "web3",
-    "ethereum",
-    "solidity",
-    "evm"
+    "rag",
+    "retrieval",
+    "augmented",
+    "generation",
+    "mongodb",
+    "mongoose",
+    "vector",
+    "search",
+    "embedding",
+    "memory",
+    "facts",
+    "conversation",
+    "chat",
+    "ai",
+    "agent",
+    "run",
+    "app",
+    "user"
   ]
 }

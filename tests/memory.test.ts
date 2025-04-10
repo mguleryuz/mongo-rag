@@ -174,7 +174,7 @@ describe('Memory Conversation Facts Extraction', () => {
       } finally {
         // Clean up - ensure this happens even if test fails
         logger.info('Cleaning up test data')
-        // await mongoRagClient.deleteAll({ user_id: 'test-user-123' })
+        await mongoRagClient.deleteAll({ user_id: 'test-user-123' })
         logger.info('Test cleanup complete')
       }
     },

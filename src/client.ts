@@ -288,6 +288,45 @@ export class MongoRagClient {
   }
 
   /**
+   * Private helper method to check for duplicate memories
+   * @param content - The content to check for duplicates
+   * @param options - The options that define what constitutes a duplicate
+   * @returns The existing memory document if found, or null if no duplicate exists
+   */
+  private async checkForDuplicate(
+    content: string,
+    options: {
+      user_id?: string
+      agent_id?: string
+      run_id?: string
+      app_id?: string
+      categories?: string[]
+      metadata?: Record<string, any>
+    }
+  ): Promise<IEmbeddingDocument | null> {
+    const existingQuery: any = { content }
+
+    if (options.user_id) existingQuery.user_id = options.user_id
+    if (options.agent_id) existingQuery.agent_id = options.agent_id
+    if (options.run_id) existingQuery.run_id = options.run_id
+    if (options.app_id) existingQuery.app_id = options.app_id
+
+    // If categories are provided, include them in the duplicate check
+    if (options.categories && options.categories.length > 0) {
+      existingQuery.categories = { $all: options.categories }
+    }
+
+    // Check for matching metadata if provided
+    if (options.metadata && Object.keys(options.metadata).length > 0) {
+      Object.entries(options.metadata).forEach(([key, value]) => {
+        existingQuery[`metadata.${key}`] = value
+      })
+    }
+
+    return await EmbeddingModel.findOne(existingQuery)
+  }
+
+  /**
    * Add a memory
    * @param messages - String content or array of message objects
    * @param options - Configuration options including identifiers and metadata
@@ -312,6 +351,25 @@ export class MongoRagClient {
       const results: MemoryFactReturnType[] = []
 
       for (const fact of facts) {
+        // Check for duplicates using the helper method
+        const existingMemory = await this.checkForDuplicate(fact, options)
+
+        if (existingMemory) {
+          console.log(`Duplicate fact found, skipping: ${fact}`)
+          // Add the existing memory to results
+          results.push({
+            id: existingMemory._id.toString(),
+            memory: existingMemory.content,
+            user_id: existingMemory.user_id,
+            agent_id: existingMemory.agent_id,
+            run_id: existingMemory.run_id,
+            app_id: existingMemory.app_id,
+            metadata: existingMemory.metadata || {},
+            categories: existingMemory.categories || [],
+          })
+          continue
+        }
+
         const embedding = await this.generateEmbedding(fact)
 
         // Process expiration date if provided
@@ -353,6 +411,21 @@ export class MongoRagClient {
     }
 
     // Original behavior for non-conversation input
+    // Check for duplicate content using the helper method
+    const existingMemory = await this.checkForDuplicate(messages, options)
+
+    if (existingMemory) {
+      console.log(`Duplicate content found, returning existing memory`)
+      return {
+        id: existingMemory._id.toString(),
+        content: existingMemory.content,
+        user_id: existingMemory.user_id,
+        agent_id: existingMemory.agent_id,
+        run_id: existingMemory.run_id,
+        app_id: existingMemory.app_id,
+      } as MemoryAddReturnType<T>
+    }
+
     const embedding = await this.generateEmbedding(messages)
 
     // Process expiration date if provided
