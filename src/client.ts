@@ -2,7 +2,6 @@ import mongoose from 'mongoose'
 import { GoogleGenAI, Type } from '@google/genai'
 import EmbeddingModel from '@/embedding.mongo'
 import type { IEmbedding, IEmbeddingDocument } from '@/embedding.mongo'
-import { OpenAI } from 'openai'
 
 export type Messages =
   | {
@@ -102,25 +101,17 @@ export type MemoryAddReturnType<T> = T extends string
   : MemoryFactsReturnType // Facts return type
 
 export class MongoRagClient {
-  private readonly openai_api_key: string
   private readonly gemini_api_key: string
   private genAI: GoogleGenAI
   private readonly EMBEDDING_DIMENSIONS = 384
 
-  constructor({
-    openai_api_key,
-    gemini_api_key,
-  }: {
-    openai_api_key: string
-    gemini_api_key: string
-  }) {
+  constructor({ gemini_api_key }: { gemini_api_key: string }) {
     if (mongoose.connection.readyState !== 1) {
       throw new Error(
         'MongoDB is not connected, please connect first, then initialize the MongoRagClient'
       )
     }
 
-    this.openai_api_key = openai_api_key
     this.gemini_api_key = gemini_api_key
     this.genAI = new GoogleGenAI({ apiKey: this.gemini_api_key })
 
@@ -139,8 +130,23 @@ export class MongoRagClient {
         throw new Error('MongoDB database connection not available')
       }
 
+      // Get the collection name
+      const collectionName = EmbeddingModel.collection.name
+
+      // Check if collection exists and create it if it doesn't
+      const collections = await db
+        .listCollections({ name: collectionName })
+        .toArray()
+      if (collections.length === 0) {
+        console.log(
+          `Collection ${collectionName} does not exist. Creating collection...`
+        )
+        await db.createCollection(collectionName)
+        console.log(`Collection ${collectionName} created successfully!`)
+      }
+
       // Get the collection from the model
-      const collection = db.collection(EmbeddingModel.collection.name)
+      const collection = db.collection(collectionName)
 
       // Check if search index exists
       const searchIndexes = await collection
@@ -154,6 +160,9 @@ export class MongoRagClient {
 
       if (!vectorIndexExists) {
         console.log('Vector search index does not exist. Creating index...')
+        console.log(
+          'MongoDB Vector Index takes around a minute to create at first initialization.'
+        )
 
         // Define the index configuration
         const indexConfig = {
@@ -174,8 +183,6 @@ export class MongoRagClient {
         // Create the search index
         await collection.createSearchIndex(indexConfig)
         console.log('Vector search index created successfully!')
-      } else {
-        console.log('Vector search index already exists.')
       }
     } catch (error: unknown) {
       console.error('Error while ensuring vector index:', error)
@@ -187,22 +194,15 @@ export class MongoRagClient {
 
   // Generate embedding using Gemini
   private async generateEmbedding(text: string): Promise<number[]> {
-    // Note: Replace this with actual Gemini embedding API once available
-    // For now, we can use the Gemini model for embeddings or keep OpenAI as a fallback
-
-    // Example implementation using Gemini (once embedding API is available):
-    // const embeddingModel = this.genAI.getEmbeddingModel();
-    // const result = await embeddingModel.embedContent(text);
-    // return result.embedding;
-
-    // Fallback to OpenAI for now
-    const openai = new OpenAI({ apiKey: this.openai_api_key })
-    const response = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: text,
-      dimensions: this.EMBEDDING_DIMENSIONS,
+    const response = await this.genAI.models.embedContent({
+      model: 'gemini-embedding-exp-03-07',
+      contents: text,
+      config: {
+        outputDimensionality: this.EMBEDDING_DIMENSIONS,
+      },
     })
-    return response.data[0].embedding
+
+    return response.embeddings?.[0].values ?? []
   }
 
   /**
@@ -721,18 +721,6 @@ export class MongoRagClient {
     }
 
     return { results }
-  }
-
-  /**
-   * Reset the client (for testing purposes)
-   */
-  async reset() {
-    if (process.env.NODE_ENV === 'test') {
-      await EmbeddingModel.deleteMany({})
-      return { success: true, message: 'All memories deleted' }
-    } else {
-      throw new Error('Reset is only allowed in test mode')
-    }
   }
 
   // Helper methods
