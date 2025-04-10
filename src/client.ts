@@ -105,16 +105,14 @@ export class MongoRagClient {
   private readonly openai_api_key: string
   private readonly gemini_api_key: string
   private genAI: GoogleGenAI
-  private readonly embeddingDimensions: number = 1536 // Default embedding dimensions
+  private readonly EMBEDDING_DIMENSIONS = 384
 
   constructor({
     openai_api_key,
     gemini_api_key,
-    embeddingDimensions = 1536,
   }: {
     openai_api_key: string
     gemini_api_key: string
-    embeddingDimensions?: number
   }) {
     if (mongoose.connection.readyState !== 1) {
       throw new Error(
@@ -124,7 +122,6 @@ export class MongoRagClient {
 
     this.openai_api_key = openai_api_key
     this.gemini_api_key = gemini_api_key
-    this.embeddingDimensions = embeddingDimensions
     this.genAI = new GoogleGenAI({ apiKey: this.gemini_api_key })
 
     // Ensure the vector search index exists
@@ -167,7 +164,7 @@ export class MongoRagClient {
               {
                 type: 'vector',
                 path: 'embedding',
-                numDimensions: this.embeddingDimensions,
+                numDimensions: this.EMBEDDING_DIMENSIONS,
                 similarity: 'cosine',
               },
             ],
@@ -203,7 +200,7 @@ export class MongoRagClient {
     const response = await openai.embeddings.create({
       model: 'text-embedding-3-small',
       input: text,
-      dimensions: this.embeddingDimensions,
+      dimensions: this.EMBEDDING_DIMENSIONS,
     })
     return response.data[0].embedding
   }
