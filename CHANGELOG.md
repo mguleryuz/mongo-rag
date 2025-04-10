@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.9.8](https://github.com/mguleryuz/mongo-rag/compare/v0.9.7...v0.9.8) (2025-04-10)
+
+### Features
+
+- implement duplicate memory checks in MongoRagClient ([a0fac25](https://github.com/mguleryuz/mongo-rag/commit/a0fac2584f934171302205912ef82ec9a3b5a607))
+- integrate Google GenAI for fact extraction in MongoRagClient ([ec27a20](https://github.com/mguleryuz/mongo-rag/commit/ec27a20141ac080284b0e6d210009b269c9025f4))
+
 ### [0.9.7](https://github.com/mguleryuz/mongo-rag/compare/v0.9.6...v0.9.7) (2025-04-09)
 
 ### [0.9.6](https://github.com/mguleryuz/mongo-rag/compare/v0.9.5...v0.9.6) (2025-04-09)

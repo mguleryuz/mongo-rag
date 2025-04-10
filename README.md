@@ -23,6 +23,7 @@ This package implements a RAG (Retrieval Augmented Generation) system that:
 - Organizes memories by user, agent, and session contexts
 - Allows rich metadata and categorization
 - Supports automatic expiration for temporary memories
+- Prevents duplicate content to maintain database efficiency
 
 Check out the [Changelog](./CHANGELOG.md) to see what changed in the last releases.
 
@@ -36,6 +37,8 @@ Check out the [Changelog](./CHANGELOG.md) to see what changed in the last releas
 - **Type Safety**: Fully typed API with TypeScript
 - **Batch Operations**: Support for batch updates and deletes
 - **Pagination**: Handle large datasets with efficient pagination
+- **Duplicate Prevention**: Automatically checks and prevents storing duplicate content
+- **Automatic Collections**: Creates required collections and indexes if they don't exist
 
 ## Installation
 
@@ -43,7 +46,7 @@ Check out the [Changelog](./CHANGELOG.md) to see what changed in the last releas
 
 - MongoDB Atlas account with vector search capabilities
 - Node.js v16+ or Bun
-- OpenAI API key for generating embeddings
+- Google Gemini API key for embeddings and fact extraction
 
 ### Install with npm:
 
@@ -65,8 +68,8 @@ Set up the required environment variables:
 # MongoDB connection string
 MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/database
 
-# OpenAI API key for generating embeddings
-OPENAI_API_KEY=sk-...
+# Gemini API key for embeddings and fact extraction
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
 ## Quick Start
@@ -86,9 +89,7 @@ await mongoose.connect(process.env.MONGO_URI)
 import { MongoRagClient } from 'mongo-rag'
 
 const client = new MongoRagClient({
-  openai_api_key: process.env.OPENAI_API_KEY,
-  // Optional: set embedding dimensions (default: 1536 for text-embedding-3-small)
-  embeddingDimensions: 1536,
+  gemini_api_key: process.env.GEMINI_API_KEY,
 })
 ```
 
@@ -208,7 +209,7 @@ bun i
 ```bash
 # Set environment variables for testing
 export MONGO_URI=mongodb+srv://...
-export OPENAI_API_KEY=sk-...
+export GEMINI_API_KEY=your_gemini_api_key
 export NODE_ENV=test
 
 # Run tests
