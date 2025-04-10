@@ -60,6 +60,7 @@
     "mongodb": "^6.15.0"
   },
   "dependencies": {
+    "@google/genai": "^0.8.0",
     "debug": "^4.4.0",
     "openai": "^4",
     "type-fest-4": "npm:type-fest@^4",

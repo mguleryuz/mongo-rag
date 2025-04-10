@@ -1,9 +1,8 @@
 import mongoose from 'mongoose'
-import { OpenAI } from 'openai'
+import { GoogleGenAI, Type } from '@google/genai'
 import EmbeddingModel from '@/embedding.mongo'
 import type { IEmbedding, IEmbeddingDocument } from '@/embedding.mongo'
-import { z } from 'zod'
-import { zodResponseFormat } from 'openai/helpers/zod'
+import { OpenAI } from 'openai'
 
 export type Messages =
   | {
@@ -104,14 +103,17 @@ export type MemoryAddReturnType<T> = T extends string
 
 export class MongoRagClient {
   private readonly openai_api_key: string
-  private openai: OpenAI
-  private readonly embeddingDimensions: number = 1536 // Default for text-embedding-3-small
+  private readonly gemini_api_key: string
+  private genAI: GoogleGenAI
+  private readonly embeddingDimensions: number = 1536 // Default embedding dimensions
 
   constructor({
     openai_api_key,
+    gemini_api_key,
     embeddingDimensions = 1536,
   }: {
     openai_api_key: string
+    gemini_api_key: string
     embeddingDimensions?: number
   }) {
     if (mongoose.connection.readyState !== 1) {
@@ -121,8 +123,9 @@ export class MongoRagClient {
     }
 
     this.openai_api_key = openai_api_key
+    this.gemini_api_key = gemini_api_key
     this.embeddingDimensions = embeddingDimensions
-    this.openai = new OpenAI({ apiKey: this.openai_api_key })
+    this.genAI = new GoogleGenAI({ apiKey: this.gemini_api_key })
 
     // Ensure the vector search index exists
     this.ensureVectorIndex()
@@ -185,9 +188,19 @@ export class MongoRagClient {
     }
   }
 
-  // Generate embedding using OpenAI
+  // Generate embedding using Gemini
   private async generateEmbedding(text: string): Promise<number[]> {
-    const response = await this.openai.embeddings.create({
+    // Note: Replace this with actual Gemini embedding API once available
+    // For now, we can use the Gemini model for embeddings or keep OpenAI as a fallback
+
+    // Example implementation using Gemini (once embedding API is available):
+    // const embeddingModel = this.genAI.getEmbeddingModel();
+    // const result = await embeddingModel.embedContent(text);
+    // return result.embedding;
+
+    // Fallback to OpenAI for now
+    const openai = new OpenAI({ apiKey: this.openai_api_key })
+    const response = await openai.embeddings.create({
       model: 'text-embedding-3-small',
       input: text,
       dimensions: this.embeddingDimensions,
@@ -226,77 +239,54 @@ export class MongoRagClient {
       .map((msg) => `${msg.role}: ${msg.content}`)
       .join('\n')
 
-    // Define a Zod schema for facts extraction
-    const factsSchema = z.object({
-      facts: z
-        .array(z.string())
-        .describe('Array of facts about the user in third person'),
-    })
-
     try {
-      // Use the beta API with Zod schema validation
-      const completion = await this.openai.beta.chat.completions.parse({
-        model: 'gpt-4o-mini', // Using GPT-4o which supports structured outputs
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Extract distinct factual statements about the user from this conversation. Focus on preferences, traits, beliefs, or any other relevant information about the user.',
-          },
+      const response = await this.genAI.models.generateContent({
+        model: 'gemini-2.0-flash-lite',
+        contents: [
           {
             role: 'user',
-            content: conversationText,
+            parts: [
+              {
+                text: `Extract distinct factual statements about the user from this conversation. Focus on preferences, traits, beliefs, or any other relevant information about the user.\n\nConversation:\n${conversationText}`,
+              },
+            ],
           },
         ],
-        response_format: zodResponseFormat(factsSchema, 'facts_extraction'),
+        config: {
+          temperature: 0.2,
+          topK: 40,
+          topP: 0.95,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              facts: {
+                type: Type.ARRAY,
+                description: 'Array of facts about the user in third person',
+                items: {
+                  type: Type.STRING,
+                },
+              },
+            },
+            required: ['facts'],
+          },
+        },
       })
 
-      // Extract the facts from the parsed response
-      const parsed = completion.choices[0].message.parsed
-      return parsed?.facts || []
-    } catch (error) {
-      console.error('Error calling OpenAI for fact extraction:', error)
+      if (response && response.text) {
+        const resultText = response.text
+        const parsedResult = JSON.parse(resultText)
 
-      // Fallback to manual extraction for compatibility
-      try {
-        const response = await this.openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Extract distinct factual statements about the user from this conversation. Return a JSON object with a "facts" array containing string facts in third person (e.g., "User likes sci-fi movies").',
-            },
-            {
-              role: 'user',
-              content: conversationText,
-            },
-          ],
-          response_format: { type: 'json_object' },
-        })
-
-        const content = response.choices[0].message.content || '{"facts": []}'
-        const parsed = JSON.parse(content)
-
-        if (parsed.facts && Array.isArray(parsed.facts)) {
-          return parsed.facts
+        if (parsedResult.facts && Array.isArray(parsedResult.facts)) {
+          return parsedResult.facts
         }
-
-        // Extract facts from the content as a fallback
-        const contentStr = content.toString()
-        const directFacts = contentStr
-          .split('\n')
-          .map((line: string) => line.trim())
-          .filter(
-            (line: string) => line.startsWith('User') || line.includes('User')
-          )
-          .map((line: string) => line.replace(/["{}]/g, '').trim())
-
-        return directFacts.length > 0 ? directFacts : []
-      } catch (fallbackError) {
-        console.error('Fallback extraction also failed:', fallbackError)
-        return []
       }
+
+      return []
+    } catch (error) {
+      console.error('Error calling Gemini for fact extraction:', error)
+
+      return []
     }
   }
 

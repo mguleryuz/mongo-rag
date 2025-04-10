@@ -8,6 +8,7 @@ import { logger } from './logger'
 
 const MONGO_URI = process.env.MONGO_URI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
 describe('Memory Conversation Facts Extraction', () => {
   let mongoRagClient: MongoRagClient
@@ -27,7 +28,15 @@ describe('Memory Conversation Facts Extraction', () => {
       if (!OPENAI_API_KEY) {
         throw new Error('OpenAI API key is not defined')
       }
-      mongoRagClient = new MongoRagClient({ openai_api_key: OPENAI_API_KEY })
+
+      if (!GEMINI_API_KEY) {
+        throw new Error('Gemini API key is not defined')
+      }
+
+      mongoRagClient = new MongoRagClient({
+        openai_api_key: OPENAI_API_KEY,
+        gemini_api_key: GEMINI_API_KEY,
+      })
     } catch (error) {
       logger.error('Failed to connect to MongoDB:', error)
       throw error
